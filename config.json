@@ -1,0 +1,24 @@
+{
+  "museum_id": "2",
+  "ticket_type": "time_slot",
+  "shop_domain": "tickets.jmberlin.de",
+  "calendar_url": "https://jmb.gomus.de/api/v4/tickets/calendar",
+  "quotas_url": "https://jmb.gomus.de/api/v4/tickets/list_and_quotas",
+  "booking_page_url": "https://tickets.jmberlin.de/tickets/?museum_id=2",
+  "calendar_months": [
+    "2026-12-01",
+    "2027-01-01"
+  ],
+  "date_start": "2026-12-24",
+  "date_end": "2027-01-03",
+  "excluded_dates": [
+    "2026-12-24"
+  ],
+  "min_tickets": 2,
+  "morning_before_hour": 10,
+  "afternoon_from_hour": 15,
+  "base_interval_secs": 300,
+  "max_jitter_secs": 300,
+  "max_recent_checks": 3,
+  "state_file_path": "last_seen_slots.json"
+}
