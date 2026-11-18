@@ -4,7 +4,7 @@
 
 Build an automated, headless daemon in Rust (`jmb-ticket-watcher`) running on macOS (Apple Silicon) under `caffeinate -i`. The binary monitors time slot availability at the Jewish Museum Berlin (`museum_id=2`) for the holiday window **2026-12-24 to 2027-01-03**, excluding fixed closure dates (**2026-12-24**).
 
-Eligible time slots must have at least `min_tickets` available (default `2`) and fall within the desired time windows: before `10:00` (`hour < 10`) or from `15:00` onwards (`hour >= 15`).
+Eligible time slots must have at least `min_tickets` available (default `2`) and fall within the desired time windows: up to `10:00` inclusive (`<= 10:00`) or from `15:00` onwards (`>= 15:00`).
 
 The daemon deduplicates notified slots and records a rolling history of the last 3 polling checks in `last_seen_slots.json`, and sends push alerts via **ntfy** (`ntfy.sh`) with a direct booking link.
 
@@ -92,8 +92,8 @@ Configuration is split between non-sensitive parameters (`config.json`) and sens
 * `date_start` / `date_end`: `"2026-12-24"` through `"2027-01-03"` inclusive
 * `excluded_dates`: `["2026-12-24"]`
 * `min_tickets`: `2` (`capacity >= min_tickets`)
-* `morning_before_hour`: `10` (`hour < 10`)
-* `afternoon_from_hour`: `15` (`hour >= 15`)
+* `morning_before_hour`: `10` (`<= 10:00`)
+* `afternoon_from_hour`: `15` (`>= 15:00`)
 * `base_interval_secs`: `300` (5 minutes)
 * `max_jitter_secs`: `300` (0–300s random jitter, 5–10 minute window)
 * `max_recent_checks`: `3`
