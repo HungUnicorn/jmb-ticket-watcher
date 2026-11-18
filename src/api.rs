@@ -1,179 +1,202 @@
+use crate::client::WatcherHttpClient;
 use crate::config::{AppConfig, SecretsConfig};
 use crate::models::{AvailableSlot, CalendarResponse, QuotasResponse};
 use anyhow::{Context, Result};
-use reqwest::Client;
-use std::collections::BTreeSet;
 use tracing::debug;
 
-/// Queries the calendar endpoint for a given month (`YYYY-MM-01`).
-pub async fn fetch_calendar(
-    client: &Client,
-    cfg: &AppConfig,
-    start_at: &str,
-) -> Result<CalendarResponse> {
-    let response = client
-        .get(&cfg.calendar_url)
-        .header("X-Shop-Url", &cfg.shop_domain)
-        .query(&[
-            ("by_bookable", "true"),
-            ("by_ticket_types[]", cfg.ticket_type.as_str()),
-            ("by_museum_ids[]", cfg.museum_id.as_str()),
-            ("start_at", start_at),
-        ])
-        .send()
-        .await
-        .with_context(|| format!("calendar request failed for start_at={start_at}"))?;
+#[allow(async_fn_in_trait)]
+pub trait TicketAvailabilityProvider {
+    async fn fetch_bookable_calendar_for_month(
+        &self,
+        cfg: &AppConfig,
+        month_start_date: &str,
+    ) -> Result<CalendarResponse>;
 
-    let status = response.status();
-    debug!(url = %cfg.calendar_url, start_at, %status, "calendar response received");
-
-    response
-        .error_for_status()
-        .with_context(|| format!("calendar endpoint returned error status for {start_at}"))?
-        .json::<CalendarResponse>()
-        .await
-        .with_context(|| format!("failed to decode calendar JSON for {start_at}"))
+    async fn fetch_slot_quotas_for_date(
+        &self,
+        cfg: &AppConfig,
+        valid_date: &str,
+    ) -> Result<QuotasResponse>;
 }
 
-/// Queries the quota/capacity endpoint for a specific date (`YYYY-MM-DD`).
-pub async fn fetch_quotas(
-    client: &Client,
-    cfg: &AppConfig,
-    valid_at: &str,
-) -> Result<QuotasResponse> {
-    let response = client
-        .get(&cfg.quotas_url)
-        .header("X-Shop-Url", &cfg.shop_domain)
-        .query(&[
-            ("by_bookable", "true"),
-            ("by_ticket_types[]", cfg.ticket_type.as_str()),
-            ("by_museum_ids[]", cfg.museum_id.as_str()),
-            ("valid_at", valid_at),
-        ])
-        .send()
-        .await
-        .with_context(|| format!("quotas request failed for valid_at={valid_at}"))?;
-
-    let status = response.status();
-    debug!(url = %cfg.quotas_url, valid_at, %status, "quotas response received");
-
-    response
-        .error_for_status()
-        .with_context(|| format!("quotas endpoint returned error status for {valid_at}"))?
-        .json::<QuotasResponse>()
-        .await
-        .with_context(|| format!("failed to decode quotas JSON for {valid_at}"))
+#[allow(async_fn_in_trait)]
+pub trait AlertNotifier {
+    async fn dispatch_available_slots_alert(
+        &self,
+        cfg: &AppConfig,
+        secrets: &SecretsConfig,
+        available_slots: &[AvailableSlot],
+    ) -> Result<()>;
 }
 
-/// Returns true if `date` (`YYYY-MM-DD`) is within the configured date window and not excluded.
-pub fn is_target_date(date: &str, cfg: &AppConfig) -> bool {
-    date >= cfg.date_start.as_str()
-        && date <= cfg.date_end.as_str()
-        && !cfg.excluded_dates.iter().any(|d| d == date)
-}
+impl TicketAvailabilityProvider for WatcherHttpClient {
+    async fn fetch_bookable_calendar_for_month(
+        &self,
+        cfg: &AppConfig,
+        month_start_date: &str,
+    ) -> Result<CalendarResponse> {
+        let response = self
+            .inner_client()
+            .get(&cfg.calendar_url)
+            .header("X-Shop-Url", &cfg.shop_domain)
+            .query(&[
+                ("by_bookable", "true"),
+                ("by_ticket_types[]", cfg.ticket_type.as_str()),
+                ("by_museum_ids[]", cfg.museum_id.as_str()),
+                ("start_at", month_start_date),
+            ])
+            .send()
+            .await
+            .with_context(|| format!("calendar request failed for start_at={month_start_date}"))?;
 
-/// Extracts `(hour, minute)` from an ISO-8601 timestamp like `2026-12-29T09:30:00+01:00`.
-pub fn parse_hour_minute(timestamp: &str) -> Option<(u32, u32)> {
-    let (_, time_part) = timestamp.split_once('T')?;
-    if time_part.len() < 5 || time_part.as_bytes()[2] != b':' {
-        return None;
+        let status = response.status();
+        debug!(url = %cfg.calendar_url, month_start_date, %status, "calendar response received");
+
+        response
+            .error_for_status()
+            .with_context(|| {
+                format!("calendar endpoint returned error status for {month_start_date}")
+            })?
+            .json::<CalendarResponse>()
+            .await
+            .with_context(|| format!("failed to decode calendar JSON for {month_start_date}"))
     }
-    let hour: u32 = time_part[0..2].parse().ok()?;
-    let minute: u32 = time_part[3..5].parse().ok()?;
-    if hour > 23 || minute > 59 {
-        return None;
+
+    async fn fetch_slot_quotas_for_date(
+        &self,
+        cfg: &AppConfig,
+        valid_date: &str,
+    ) -> Result<QuotasResponse> {
+        let response = self
+            .inner_client()
+            .get(&cfg.quotas_url)
+            .header("X-Shop-Url", &cfg.shop_domain)
+            .query(&[
+                ("by_bookable", "true"),
+                ("by_ticket_types[]", cfg.ticket_type.as_str()),
+                ("by_museum_ids[]", cfg.museum_id.as_str()),
+                ("valid_at", valid_date),
+            ])
+            .send()
+            .await
+            .with_context(|| format!("quotas request failed for valid_at={valid_date}"))?;
+
+        let status = response.status();
+        debug!(url = %cfg.quotas_url, valid_date, %status, "quotas response received");
+
+        response
+            .error_for_status()
+            .with_context(|| format!("quotas endpoint returned error status for {valid_date}"))?
+            .json::<QuotasResponse>()
+            .await
+            .with_context(|| format!("failed to decode quotas JSON for {valid_date}"))
     }
-    Some((hour, minute))
 }
 
-/// Returns true if the slot's local time matches the configured morning or afternoon window.
-pub fn is_desired_time(timestamp: &str, cfg: &AppConfig) -> bool {
-    let Some((hour, _minute)) = parse_hour_minute(timestamp) else {
-        return false;
-    };
-    hour < cfg.morning_before_hour || hour >= cfg.afternoon_from_hour
+impl AlertNotifier for WatcherHttpClient {
+    async fn dispatch_available_slots_alert(
+        &self,
+        cfg: &AppConfig,
+        secrets: &SecretsConfig,
+        available_slots: &[AvailableSlot],
+    ) -> Result<()> {
+        let base_url = secrets.ntfy_base_url.trim_end_matches('/');
+        let topic = secrets.ntfy_topic.trim();
+        let endpoint_url = format!("{base_url}/{topic}");
+        let notification_body =
+            format_available_slots_notification_body(available_slots, &cfg.booking_page_url);
+
+        let response = self
+            .inner_client()
+            .post(&endpoint_url)
+            .header("Title", "JMB Time Slot Alert!")
+            .header("Priority", "high")
+            .header("Tags", "ticket")
+            .header("Click", &cfg.booking_page_url)
+            .body(notification_body)
+            .send()
+            .await
+            .with_context(|| format!("failed to send ntfy alert to {base_url}/<redacted>"))?;
+
+        let status = response.status();
+        debug!(%status, "ntfy response received");
+
+        response
+            .error_for_status()
+            .context("ntfy endpoint returned error status")?;
+
+        Ok(())
+    }
 }
 
-/// Filters a slot by minimum tickets (`capacity >= cfg.min_tickets`), desired time window, and deduplication set.
-pub fn is_eligible_slot(
-    timestamp: &str,
-    capacity: i64,
-    cfg: &AppConfig,
-    notified_slots: &BTreeSet<String>,
-) -> bool {
-    capacity >= cfg.min_tickets
-        && is_desired_time(timestamp, cfg)
-        && !notified_slots.contains(timestamp)
-}
-
-/// Formats a human-readable summary for newly discovered slots.
-pub fn format_alert_message(slots: &[AvailableSlot], booking_page_url: &str) -> String {
+pub fn format_available_slots_notification_body(
+    slots: &[AvailableSlot],
+    booking_page_url: &str,
+) -> String {
     let mut lines = Vec::with_capacity(slots.len() + 3);
     lines.push("New availability found:".to_string());
     for slot in slots {
-        let display_ts = slot
+        let display_timestamp = slot
             .timestamp
             .split_once('+')
             .map(|(prefix, _)| prefix)
             .unwrap_or(&slot.timestamp)
             .replace('T', " ");
-        let short_ts = display_ts.get(..16).unwrap_or(&display_ts);
-        lines.push(format!("- {short_ts} ({} tickets)", slot.capacity));
+        let date_and_minute = display_timestamp.get(..16).unwrap_or(&display_timestamp);
+        lines.push(format!("- {date_and_minute} ({} tickets)", slot.capacity));
     }
     lines.push(format!("Book: {booking_page_url}"));
     lines.join("\n")
 }
 
-/// Sends a push notification via ntfy for the newly discovered slots.
-pub async fn send_ntfy_alert(
-    client: &Client,
-    cfg: &AppConfig,
-    secrets: &SecretsConfig,
-    slots: &[AvailableSlot],
-) -> Result<()> {
-    let base = secrets.ntfy_base_url.trim_end_matches('/');
-    let topic = secrets.ntfy_topic.trim();
-    let url = format!("{base}/{topic}");
-    let body = format_alert_message(slots, &cfg.booking_page_url);
-
-    let response = client
-        .post(&url)
-        .header("Title", "JMB Time Slot Alert!")
-        .header("Priority", "high")
-        .header("Tags", "ticket")
-        .header("Click", &cfg.booking_page_url)
-        .body(body)
-        .send()
-        .await
-        .with_context(|| format!("failed to send ntfy alert to {base}/<redacted>"))?;
-
-    let status = response.status();
-    debug!(%status, "ntfy response received");
-
-    response
-        .error_for_status()
-        .context("ntfy endpoint returned error status")?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{AppConfig, SecretsConfig};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
-    fn sample_config() -> AppConfig {
+    async fn spawn_single_response_http_server(
+        status_line: &str,
+        content_type: &str,
+        body: &str,
+    ) -> (String, tokio::task::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let status_line = status_line.to_string();
+        let content_type = content_type.to_string();
+        let body = body.to_string();
+
+        let handle = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0u8; 4096];
+            let bytes_read = socket.read(&mut buffer).await.unwrap();
+            let raw_request = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
+
+            let response = format!(
+                "HTTP/1.1 {status_line}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            raw_request
+        });
+
+        (format!("http://{addr}"), handle)
+    }
+
+    fn test_app_config(base_url: &str) -> AppConfig {
         AppConfig {
             museum_id: "2".to_string(),
             ticket_type: "time_slot".to_string(),
             shop_domain: "tickets.jmberlin.de".to_string(),
-            calendar_url: "https://jmb.gomus.de/api/v4/tickets/calendar".to_string(),
-            quotas_url: "https://jmb.gomus.de/api/v4/tickets/list_and_quotas".to_string(),
-            booking_page_url: "https://tickets.jmberlin.de/en/tickets/?museum_id=2".to_string(),
-            calendar_months: vec!["2026-12-01".to_string(), "2027-01-01".to_string()],
+            calendar_url: format!("{base_url}/api/v4/tickets/calendar"),
+            quotas_url: format!("{base_url}/api/v4/tickets/list_and_quotas"),
+            booking_page_url: "https://tickets.jmberlin.de/tickets/?museum_id=2".to_string(),
+            calendar_months: vec!["2026-12-01".to_string()],
             date_start: "2026-12-24".to_string(),
             date_end: "2027-01-03".to_string(),
             excluded_dates: vec!["2026-12-24".to_string()],
-            min_tickets: 3,
+            min_tickets: 2,
             morning_before_hour: 10,
             afternoon_from_hour: 15,
             base_interval_secs: 300,
@@ -184,63 +207,107 @@ mod tests {
     }
 
     #[test]
-    fn target_date_filtering() {
-        let cfg = sample_config();
-        assert!(!is_target_date("2026-12-23", &cfg));
-        assert!(!is_target_date("2026-12-24", &cfg)); // excluded
-        assert!(is_target_date("2026-12-25", &cfg));
-        assert!(is_target_date("2026-12-31", &cfg));
-        assert!(is_target_date("2027-01-01", &cfg));
-        assert!(is_target_date("2027-01-03", &cfg));
-        assert!(!is_target_date("2027-01-04", &cfg));
+    fn formats_notification_body_with_slots_and_booking_link() {
+        let slots = vec![
+            AvailableSlot {
+                timestamp: "2026-12-29T09:30:00+01:00".to_string(),
+                capacity: 3,
+            },
+            AvailableSlot {
+                timestamp: "2026-12-29T15:00:00+01:00".to_string(),
+                capacity: 5,
+            },
+        ];
+
+        let body = format_available_slots_notification_body(
+            &slots,
+            "https://tickets.jmberlin.de/tickets/?museum_id=2",
+        );
+
+        assert_eq!(
+            body,
+            "New availability found:\n- 2026-12-29 09:30 (3 tickets)\n- 2026-12-29 15:00 (5 tickets)\nBook: https://tickets.jmberlin.de/tickets/?museum_id=2"
+        );
     }
 
-    #[test]
-    fn desired_time_filtering() {
-        let cfg = sample_config();
-        assert!(is_desired_time("2026-12-29T09:00:00+01:00", &cfg));
-        assert!(is_desired_time("2026-12-29T09:45:00+01:00", &cfg));
-        assert!(!is_desired_time("2026-12-29T10:00:00+01:00", &cfg));
-        assert!(!is_desired_time("2026-12-29T14:45:00+01:00", &cfg));
-        assert!(is_desired_time("2026-12-29T15:00:00+01:00", &cfg));
-        assert!(is_desired_time("2026-12-29T16:15:00+01:00", &cfg));
-        assert!(!is_desired_time("invalid-timestamp", &cfg));
+    #[tokio::test]
+    async fn fetches_calendar_with_shop_header_and_query_params() {
+        let (base_url, server_handle) = spawn_single_response_http_server(
+            "200 OK",
+            "application/json",
+            r#"{"data":{"2026-12-25":true,"2026-12-26":false}}"#,
+        )
+        .await;
+
+        let client = WatcherHttpClient::new_with_default_timeouts().unwrap();
+        let cfg = test_app_config(&base_url);
+
+        let calendar = client
+            .fetch_bookable_calendar_for_month(&cfg, "2026-12-01")
+            .await
+            .unwrap();
+        let raw_request = server_handle.await.unwrap().to_lowercase();
+
+        assert_eq!(calendar.data.get("2026-12-25"), Some(&true));
+        assert_eq!(calendar.data.get("2026-12-26"), Some(&false));
+        assert!(raw_request.contains("x-shop-url: tickets.jmberlin.de"));
+        assert!(raw_request.contains("start_at=2026-12-01"));
     }
 
-    #[test]
-    fn slot_eligibility_checks_capacity_time_and_seen() {
-        let cfg = sample_config();
-        let mut notified = BTreeSet::new();
-        notified.insert("2026-12-29T09:15:00+01:00".to_string());
+    #[tokio::test]
+    async fn fetches_quotas_for_date_and_parses_capacities() {
+        let (base_url, server_handle) = spawn_single_response_http_server(
+            "200 OK",
+            "application/json",
+            r#"{"quotas":{"24":{"capacities":{"2026-12-29T10:00:00+01:00":2}}}}"#,
+        )
+        .await;
 
-        // Capacity must be >= min_tickets (3)
-        assert!(!is_eligible_slot(
-            "2026-12-29T09:30:00+01:00",
-            2,
-            &cfg,
-            &notified
-        ));
-        assert!(is_eligible_slot(
-            "2026-12-29T09:30:00+01:00",
-            3,
-            &cfg,
-            &notified
-        ));
+        let client = WatcherHttpClient::new_with_default_timeouts().unwrap();
+        let cfg = test_app_config(&base_url);
 
-        // Already notified
-        assert!(!is_eligible_slot(
-            "2026-12-29T09:15:00+01:00",
-            5,
-            &cfg,
-            &notified
-        ));
+        let quotas = client
+            .fetch_slot_quotas_for_date(&cfg, "2026-12-29")
+            .await
+            .unwrap();
+        let raw_request = server_handle.await.unwrap().to_lowercase();
 
-        // Outside desired hours
-        assert!(!is_eligible_slot(
-            "2026-12-29T11:00:00+01:00",
-            5,
-            &cfg,
-            &notified
-        ));
+        assert_eq!(
+            quotas.quotas["24"]
+                .capacities
+                .get("2026-12-29T10:00:00+01:00"),
+            Some(&2)
+        );
+        assert!(raw_request.contains("x-shop-url: tickets.jmberlin.de"));
+        assert!(raw_request.contains("valid_at=2026-12-29"));
+    }
+
+    #[tokio::test]
+    async fn dispatches_ntfy_alert_with_expected_headers_and_body() {
+        let (base_url, server_handle) =
+            spawn_single_response_http_server("200 OK", "application/json", r#"{"id":"ok"}"#).await;
+
+        let client = WatcherHttpClient::new_with_default_timeouts().unwrap();
+        let cfg = test_app_config(&base_url);
+        let secrets = SecretsConfig {
+            ntfy_base_url: base_url,
+            ntfy_topic: "test-topic".to_string(),
+        };
+        let slots = vec![AvailableSlot {
+            timestamp: "2026-12-29T10:00:00+01:00".to_string(),
+            capacity: 2,
+        }];
+
+        client
+            .dispatch_available_slots_alert(&cfg, &secrets, &slots)
+            .await
+            .unwrap();
+        let raw_request = server_handle.await.unwrap();
+        let lower = raw_request.to_lowercase();
+
+        assert!(raw_request.starts_with("POST /test-topic "));
+        assert!(lower.contains("title: jmb time slot alert!"));
+        assert!(lower.contains("priority: high"));
+        assert!(raw_request.contains("- 2026-12-29 10:00 (2 tickets)"));
     }
 }

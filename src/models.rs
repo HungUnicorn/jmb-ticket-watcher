@@ -1,18 +1,18 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CalendarResponse {
     pub data: HashMap<String, bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct QuotasResponse {
     #[serde(default)]
     pub quotas: HashMap<String, QuotaEntry>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct QuotaEntry {
     #[serde(default)]
     pub capacities: HashMap<String, i64>,
@@ -25,7 +25,7 @@ pub struct CheckSnapshot {
     pub available_slots: BTreeMap<String, i64>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StateFile {
     #[serde(default, alias = "seen_slots")]
     pub notified_slots: BTreeSet<String>,

@@ -1,49 +1,85 @@
-use crate::models::{CheckSnapshot, StateFile};
+use crate::models::{AvailableSlot, CheckSnapshot, StateFile};
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Loads the state from `path`, or creates an empty state file if it does not exist.
-pub fn load_or_init_state(path: &Path) -> Result<StateFile> {
-    if !path.exists() {
-        let empty = StateFile::default();
-        save_state(path, &empty)?;
-        return Ok(empty);
-    }
-
-    let raw = fs::read_to_string(path)
-        .with_context(|| format!("failed to read state file {}", path.display()))?;
-    let parsed: StateFile = serde_json::from_str(&raw)
-        .with_context(|| format!("failed to parse state file {}", path.display()))?;
-    Ok(parsed)
+pub trait StateRepository {
+    fn load_or_initialize_state(&self) -> Result<StateFile>;
+    fn persist_state(&self, state: &StateFile) -> Result<()>;
 }
 
-/// Appends a check snapshot and trims `recent_checks` to the last `max_recent_checks` runs.
-pub fn record_check_snapshot(
-    state: &mut StateFile,
-    snapshot: CheckSnapshot,
-    max_recent_checks: usize,
-) {
-    state.recent_checks.push(snapshot);
-    if max_recent_checks > 0 && state.recent_checks.len() > max_recent_checks {
-        let excess = state.recent_checks.len() - max_recent_checks;
-        state.recent_checks.drain(0..excess);
+pub struct JsonFileStateRepository {
+    file_path: PathBuf,
+}
+
+impl JsonFileStateRepository {
+    pub fn new(file_path: impl Into<PathBuf>) -> Self {
+        Self {
+            file_path: file_path.into(),
+        }
+    }
+
+    pub fn file_path(&self) -> &Path {
+        &self.file_path
     }
 }
 
-/// Persists `StateFile` as formatted JSON to `path`.
-pub fn save_state(path: &Path, state: &StateFile) -> Result<()> {
-    let serialized =
-        serde_json::to_string_pretty(state).context("failed to serialize state JSON")?;
+impl StateRepository for JsonFileStateRepository {
+    fn load_or_initialize_state(&self) -> Result<StateFile> {
+        if !self.file_path.exists() {
+            let empty_state = StateFile::default();
+            self.persist_state(&empty_state)?;
+            return Ok(empty_state);
+        }
 
-    fs::write(path, format!("{serialized}\n"))
-        .with_context(|| format!("failed to write state file {}", path.display()))?;
-    Ok(())
+        let raw = fs::read_to_string(&self.file_path)
+            .with_context(|| format!("failed to read state file {}", self.file_path.display()))?;
+        let parsed: StateFile = serde_json::from_str(&raw)
+            .with_context(|| format!("failed to parse state file {}", self.file_path.display()))?;
+        Ok(parsed)
+    }
+
+    fn persist_state(&self, state: &StateFile) -> Result<()> {
+        let serialized =
+            serde_json::to_string_pretty(state).context("failed to serialize state JSON")?;
+
+        fs::write(&self.file_path, format!("{serialized}\n"))
+            .with_context(|| format!("failed to write state file {}", self.file_path.display()))?;
+        Ok(())
+    }
 }
 
-/// Formats the current UTC time as an ISO-8601 string (`YYYY-MM-DDTHH:MM:SSZ`).
-pub fn now_utc_iso8601() -> String {
+pub trait SlotStateTracker {
+    fn append_check_snapshot_within_limit(
+        &mut self,
+        snapshot: CheckSnapshot,
+        max_recent_checks: usize,
+    );
+    fn mark_slots_as_notified(&mut self, notified_slots: &[AvailableSlot]);
+}
+
+impl SlotStateTracker for StateFile {
+    fn append_check_snapshot_within_limit(
+        &mut self,
+        snapshot: CheckSnapshot,
+        max_recent_checks: usize,
+    ) {
+        self.recent_checks.push(snapshot);
+        if max_recent_checks > 0 && self.recent_checks.len() > max_recent_checks {
+            let excess = self.recent_checks.len() - max_recent_checks;
+            self.recent_checks.drain(0..excess);
+        }
+    }
+
+    fn mark_slots_as_notified(&mut self, notified_slots: &[AvailableSlot]) {
+        for slot in notified_slots {
+            self.notified_slots.insert(slot.timestamp.clone());
+        }
+    }
+}
+
+pub fn format_current_utc_timestamp_iso8601() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -55,7 +91,6 @@ pub fn now_utc_iso8601() -> String {
     let minute = (rem % 3600) / 60;
     let second = rem % 60;
 
-    // Howard Hinnant's civil_from_days algorithm
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let doe = (z - era * 146_097) as u64;
@@ -79,8 +114,7 @@ mod tests {
     fn keeps_only_last_three_checks() {
         let mut state = StateFile::default();
         for i in 1..=5 {
-            record_check_snapshot(
-                &mut state,
+            state.append_check_snapshot_within_limit(
                 CheckSnapshot {
                     checked_at: format!("2026-11-17T20:0{i}:00Z"),
                     bookable_dates: vec!["2026-12-29".to_string()],
