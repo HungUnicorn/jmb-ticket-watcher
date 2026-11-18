@@ -6,7 +6,7 @@ A lightweight Rust daemon that monitors time-slot ticket availability on a **JMB
 
 ## Features
 
-- Polls the JMB/gomus calendar and quota APIs on a randomized 5–10 minute interval (`300s` base + `0–300s` jitter).
+- Polls the JMB/gomus calendar and quota APIs on a randomized 5–10 minute interval (`min_poll_interval_secs: 300` to `max_poll_interval_secs: 600`).
 - Filters slots by date range (`2026-12-24` to `2027-01-03`, excluding `2026-12-24`), minimum available tickets (`min_available_tickets`), and preferred hours (up to `10:00` inclusive or from `15:00` onwards).
 - Hot-reloads `config/config.json` (system settings), `config/filters.json` (personal filter criteria), and `config/secrets.json` (ntfy credentials) on every polling cycle — no restart needed when tuning filters.
 - Deduplicates alerts in `data/last_seen_slots.json` (`notified_slots`) and records a rolling history of the last 3 checks (`recent_checks`) for easy verification.

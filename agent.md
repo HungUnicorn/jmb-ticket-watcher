@@ -87,8 +87,8 @@ Configuration is split between system parameters (`config/config.json`), persona
 * `ticket_type`: `"time_slot"`
 * `shop_domain`: `"tickets.jmberlin.de"`
 * `calendar_url` / `quotas_url` / `booking_page_url`
-* `base_interval_secs`: `300` (5 minutes)
-* `max_jitter_secs`: `300` (0–300s random jitter, 5–10 minute window)
+* `min_poll_interval_secs`: `300` (5 minutes minimum wait between checks)
+* `max_poll_interval_secs`: `600` (10 minutes maximum wait between checks)
 * `max_recent_checks`: `3`
 * `state_file_path`: `"data/last_seen_slots.json"`
 
@@ -206,7 +206,7 @@ tracing-subscriber = "0.3"
      * On success, insert all `new_slots` timestamps into `notified_slots` and persist `last_seen_slots.json`.
 
 5. **Step 4: Sleep Interval (unless `--once` is passed):**
-   * Sleep `base_interval_secs + rand(0..=max_jitter_secs)` seconds, waking early on `Ctrl+C`.
+   * Sleep a random duration in `min_poll_interval_secs..=max_poll_interval_secs` seconds, waking early on `Ctrl+C`.
 
 ---
 

@@ -15,8 +15,8 @@ pub struct SystemConfig {
     pub calendar_url: String,
     pub quotas_url: String,
     pub booking_page_url: String,
-    pub base_interval_secs: u64,
-    pub max_jitter_secs: u64,
+    pub min_poll_interval_secs: u64,
+    pub max_poll_interval_secs: u64,
     pub max_recent_checks: usize,
     pub state_file_path: String,
 }
@@ -48,8 +48,8 @@ pub struct AppConfig {
     pub min_available_tickets: i64,
     pub morning_before_hour: u32,
     pub afternoon_from_hour: u32,
-    pub base_interval_secs: u64,
-    pub max_jitter_secs: u64,
+    pub min_poll_interval_secs: u64,
+    pub max_poll_interval_secs: u64,
     pub max_recent_checks: usize,
     pub state_file_path: String,
 }
@@ -73,8 +73,8 @@ impl AppConfig {
             min_available_tickets: filters.min_available_tickets,
             morning_before_hour: filters.morning_before_hour,
             afternoon_from_hour: filters.afternoon_from_hour,
-            base_interval_secs: system.base_interval_secs,
-            max_jitter_secs: system.max_jitter_secs,
+            min_poll_interval_secs: system.min_poll_interval_secs,
+            max_poll_interval_secs: system.max_poll_interval_secs,
             max_recent_checks: system.max_recent_checks,
             state_file_path: system.state_file_path,
         }
@@ -230,8 +230,8 @@ mod tests {
             calendar_url: "https://jmb.gomus.de/api/v4/tickets/calendar".to_string(),
             quotas_url: "https://jmb.gomus.de/api/v4/tickets/list_and_quotas".to_string(),
             booking_page_url: "https://tickets.jmberlin.de/tickets/".to_string(),
-            base_interval_secs: 300,
-            max_jitter_secs: 300,
+            min_poll_interval_secs: 300,
+            max_poll_interval_secs: 600,
             max_recent_checks: 3,
             state_file_path: "data/last_seen_slots.json".to_string(),
         };

@@ -64,7 +64,9 @@ where
 }
 
 pub fn compute_randomized_sleep_seconds(cfg: &AppConfig) -> u64 {
-    cfg.base_interval_secs + rand::thread_rng().gen_range(0..=cfg.max_jitter_secs)
+    let min_secs = cfg.min_poll_interval_secs;
+    let max_secs = cfg.max_poll_interval_secs.max(min_secs);
+    rand::thread_rng().gen_range(min_secs..=max_secs)
 }
 
 pub async fn execute_polling_cycle<P, N, R>(
@@ -319,8 +321,8 @@ mod tests {
             min_available_tickets: 2,
             morning_before_hour: 10,
             afternoon_from_hour: 15,
-            base_interval_secs: 300,
-            max_jitter_secs: 300,
+            min_poll_interval_secs: 300,
+            max_poll_interval_secs: 600,
             max_recent_checks: 3,
             state_file_path: "last_seen_slots.json".to_string(),
         }
