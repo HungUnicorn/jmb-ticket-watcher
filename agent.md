@@ -6,7 +6,7 @@ Build an automated, headless daemon in Rust (`jmb-ticket-watcher`) running on ma
 
 Eligible time slots must have at least `min_available_tickets` available (default `2`) and fall within the desired time windows: up to `10:00` inclusive (`<= 10:00`) or from `15:00` onwards (`>= 15:00`).
 
-The daemon deduplicates notified slots and records a rolling history of the last 3 polling checks in `last_seen_slots.json`, and sends push alerts via **ntfy** (`ntfy.sh`) with a direct booking link.
+The daemon deduplicates notified slots and records a rolling history of the last 3 polling checks in `data/last_seen_slots.json`, and sends push alerts via **ntfy** (`ntfy.sh`) with a direct booking link.
 
 ---
 
@@ -80,9 +80,9 @@ Book: https://tickets.jmberlin.de/tickets/?museum_id=2
 
 ## 3. Configuration & State Management
 
-Configuration is split between system parameters (`config.json`), personal filter parameters (`filters.json`), and sensitive credentials (`secrets.json`), all reloaded on each polling cycle.
+Configuration is split between system parameters (`config/config.json`), personal filter parameters (`config/filters.json`), and sensitive credentials (`config/secrets.json`), all reloaded on each polling cycle.
 
-### 3.1 `config.json` (System Config)
+### 3.1 `config/config.json` (System Config)
 
 * `ticket_type`: `"time_slot"`
 * `shop_domain`: `"tickets.jmberlin.de"`
@@ -90,9 +90,9 @@ Configuration is split between system parameters (`config.json`), personal filte
 * `base_interval_secs`: `300` (5 minutes)
 * `max_jitter_secs`: `300` (0–300s random jitter, 5–10 minute window)
 * `max_recent_checks`: `3`
-* `state_file_path`: `"last_seen_slots.json"`
+* `state_file_path`: `"data/last_seen_slots.json"`
 
-### 3.2 `filters.json` (Personal Filter Config, gitignored)
+### 3.2 `config/filters.json` (Personal Filter Config, gitignored)
 
 * `museum_id`: `"2"`
 * `calendar_months`: `["2026-12-01", "2027-01-01"]`
@@ -102,16 +102,16 @@ Configuration is split between system parameters (`config.json`), personal filte
 * `morning_before_hour`: `10` (`<= 10:00`)
 * `afternoon_from_hour`: `15` (`>= 15:00`)
 
-See `filters.example.json` for the template.
+See `config/filters.example.json` for the template.
 
-### 3.3 `secrets.json` (gitignored)
+### 3.3 `config/secrets.json` (gitignored)
 
 * `ntfy_base_url`: `"https://ntfy.sh"` (optional, defaults to `https://ntfy.sh`)
 * `ntfy_topic`: Target ntfy topic string (can also be overridden via `NTFY_TOPIC` environment variable)
 
-See `secrets.example.json` for the template.
+See `config/secrets.example.json` for the template.
 
-### 3.4 State File (`last_seen_slots.json`, gitignored)
+### 3.4 State File (`data/last_seen_slots.json`, gitignored)
 
 * Persisted in the working directory.
 * Schema:
@@ -144,12 +144,14 @@ See `secrets.example.json` for the template.
 ## 4. Architecture & Component Design
 
 ```
-├── config.json             # System & endpoint configuration
-├── filters.json            # Personal search & filter criteria (gitignored)
-├── filters.example.json    # Template for filters.json
-├── secrets.json            # Sensitive ntfy topic configuration (gitignored)
-├── secrets.example.json    # Template for secrets.json
-├── last_seen_slots.json    # Persisted state & last 3 check snapshots (gitignored)
+├── config/
+│   ├── config.json             # System & endpoint configuration
+│   ├── filters.json            # Personal search & filter criteria (gitignored)
+│   ├── filters.example.json    # Template for filters.json
+│   ├── secrets.json            # Sensitive ntfy topic configuration (gitignored)
+│   └── secrets.example.json    # Template for secrets.json
+├── data/
+│   └── last_seen_slots.json    # Persisted state & last 3 check snapshots (gitignored)
 ├── Cargo.toml
 └── src/
     ├── main.rs             # Entrypoint, --once flag, polling loop, Ctrl+C handling

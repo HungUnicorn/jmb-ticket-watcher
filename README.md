@@ -6,18 +6,18 @@ A lightweight Rust daemon that monitors time-slot ticket availability on a **JMB
 
 - Polls the JMB/gomus calendar and quota APIs on a randomized 5–10 minute interval (`300s` base + `0–300s` jitter).
 - Filters slots by date range (`2026-12-24` to `2027-01-03`, excluding `2026-12-24`), minimum available tickets (`min_available_tickets`), and preferred hours (up to `10:00` inclusive or from `15:00` onwards).
-- Hot-reloads `config.json` (system settings), `filters.json` (personal filter criteria), and `secrets.json` (ntfy credentials) on every polling cycle — no restart needed when tuning filters.
-- Deduplicates alerts in `last_seen_slots.json` (`notified_slots`) and records a rolling history of the last 3 checks (`recent_checks`) for easy verification.
+- Hot-reloads `config/config.json` (system settings), `config/filters.json` (personal filter criteria), and `config/secrets.json` (ntfy credentials) on every polling cycle — no restart needed when tuning filters.
+- Deduplicates alerts in `data/last_seen_slots.json` (`notified_slots`) and records a rolling history of the last 3 checks (`recent_checks`) for easy verification.
 - Supports `--once` for a single check and exits cleanly on `Ctrl+C`.
 
 ## Setup
 
-1. **Create `secrets.json` and `filters.json`** from the example templates:
+1. **Create `config/secrets.json` and `config/filters.json`** from the example templates:
    ```bash
-   cp secrets.example.json secrets.json
-   cp filters.example.json filters.json
+   cp config/secrets.example.json config/secrets.json
+   cp config/filters.example.json config/filters.json
    ```
-   Edit `secrets.json` and set a private, hard-to-guess `ntfy_topic`:
+   Edit `config/secrets.json` and set a private, hard-to-guess `ntfy_topic`:
    ```json
    {
      "ntfy_base_url": "https://ntfy.sh",
@@ -26,7 +26,7 @@ A lightweight Rust daemon that monitors time-slot ticket availability on a **JMB
    ```
    Subscribe to the same topic in the **ntfy** app on your phone (iOS/Android).
 
-2. **Edit `filters.json`** to set your personal target `museum_id`, date window, `min_available_tickets`, and time-of-day filters:
+2. **Edit `config/filters.json`** to set your personal target `museum_id`, date window, `min_available_tickets`, and time-of-day filters:
    ```json
    {
      "museum_id": "2",
