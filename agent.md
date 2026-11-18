@@ -4,7 +4,7 @@
 
 Build an automated, headless daemon in Rust (`jmb-ticket-watcher`) running on macOS (Apple Silicon) under `caffeinate -i`. The binary monitors time-slot availability on a JMB/gomus calendar (configured via `config.json`) for a target date window (default **2026-12-24 to 2027-01-03**, excluding **2026-12-24**).
 
-Eligible time slots must have at least `min_tickets` available (default `2`) and fall within the desired time windows: up to `10:00` inclusive (`<= 10:00`) or from `15:00` onwards (`>= 15:00`).
+Eligible time slots must have at least `min_available_tickets` available (default `2`) and fall within the desired time windows: up to `10:00` inclusive (`<= 10:00`) or from `15:00` onwards (`>= 15:00`).
 
 The daemon deduplicates notified slots and records a rolling history of the last 3 polling checks in `last_seen_slots.json`, and sends push alerts via **ntfy** (`ntfy.sh`) with a direct booking link.
 
@@ -80,33 +80,38 @@ Book: https://tickets.jmberlin.de/tickets/?museum_id=2
 
 ## 3. Configuration & State Management
 
-Configuration is split between non-sensitive parameters (`config.json`) and sensitive credentials (`secrets.json`), both reloaded on each polling cycle.
+Configuration is split between system parameters (`config.json`), personal filter parameters (`filters.json`), and sensitive credentials (`secrets.json`), all reloaded on each polling cycle.
 
-### 3.1 `config.json`
+### 3.1 `config.json` (System Config)
 
-* `museum_id`: `"2"`
 * `ticket_type`: `"time_slot"`
 * `shop_domain`: `"tickets.jmberlin.de"`
 * `calendar_url` / `quotas_url` / `booking_page_url`
-* `calendar_months`: `["2026-12-01", "2027-01-01"]`
-* `date_start` / `date_end`: `"2026-12-24"` through `"2027-01-03"` inclusive
-* `excluded_dates`: `["2026-12-24"]`
-* `min_tickets`: `2` (`capacity >= min_tickets`)
-* `morning_before_hour`: `10` (`<= 10:00`)
-* `afternoon_from_hour`: `15` (`>= 15:00`)
 * `base_interval_secs`: `300` (5 minutes)
 * `max_jitter_secs`: `300` (0–300s random jitter, 5–10 minute window)
 * `max_recent_checks`: `3`
 * `state_file_path`: `"last_seen_slots.json"`
 
-### 3.2 `secrets.json` (gitignored)
+### 3.2 `filters.json` (Personal Filter Config, gitignored)
+
+* `museum_id`: `"2"`
+* `calendar_months`: `["2026-12-01", "2027-01-01"]`
+* `date_start` / `date_end`: `"2026-12-24"` through `"2027-01-03"` inclusive
+* `excluded_dates`: `["2026-12-24"]`
+* `min_available_tickets`: `2` (`capacity >= min_available_tickets`)
+* `morning_before_hour`: `10` (`<= 10:00`)
+* `afternoon_from_hour`: `15` (`>= 15:00`)
+
+See `filters.example.json` for the template.
+
+### 3.3 `secrets.json` (gitignored)
 
 * `ntfy_base_url`: `"https://ntfy.sh"` (optional, defaults to `https://ntfy.sh`)
 * `ntfy_topic`: Target ntfy topic string (can also be overridden via `NTFY_TOPIC` environment variable)
 
 See `secrets.example.json` for the template.
 
-### 3.3 State File (`last_seen_slots.json`, gitignored)
+### 3.4 State File (`last_seen_slots.json`, gitignored)
 
 * Persisted in the working directory.
 * Schema:
@@ -139,18 +144,21 @@ See `secrets.example.json` for the template.
 ## 4. Architecture & Component Design
 
 ```
-├── config.json             # Non-sensitive runtime & filter configuration
+├── config.json             # System & endpoint configuration
+├── filters.json            # Personal search & filter criteria (gitignored)
+├── filters.example.json    # Template for filters.json
 ├── secrets.json            # Sensitive ntfy topic configuration (gitignored)
 ├── secrets.example.json    # Template for secrets.json
 ├── last_seen_slots.json    # Persisted state & last 3 check snapshots (gitignored)
 ├── Cargo.toml
 └── src/
-    ├── main.rs             # Entrypoint, --once flag, polling loop, Ctrl+C handling, jitter
-    ├── config.rs           # AppConfig & SecretsConfig loaders
-    ├── client.rs           # HTTP client setup (custom User-Agent, timeout defaults)
-    ├── api.rs              # JMB/gomus queries, slot filtering, ntfy alert dispatch
+    ├── main.rs             # Entrypoint, --once flag, polling loop, Ctrl+C handling
+    ├── watcher.rs          # TicketWatcher trait & PollingTicketWatcher implementation
+    ├── config.rs           # SystemConfig, FilterConfig, AppConfig & SecretsConfig loaders
+    ├── client.rs           # WatcherHttpClient setup (User-Agent, timeouts)
+    ├── api.rs              # TicketAvailabilityProvider & AlertNotifier traits
     ├── models.rs           # Serde structs for calendar, quotas, snapshots, and state JSON
-    └── state.rs            # Load/save and rolling 3-check history management
+    └── state.rs            # StateRepository & SlotStateTracker traits
 ```
 
 ### 4.1 Dependency Manifest (`Cargo.toml`)
@@ -187,7 +195,7 @@ tracing-subscriber = "0.3"
 3. **Step 2: Quota Extraction:**
    * For each bookable date, fetch `/api/v4/tickets/list_and_quotas?valid_at={date}` with `X-Shop-Url`.
    * Collect all slots with `capacity > 0` into `available_slots` for the check snapshot.
-   * Collect eligible slots where `capacity >= min_tickets`, `hour < morning_before_hour || hour >= afternoon_from_hour`, and `!notified_slots.contains(timestamp)`.
+   * Collect eligible slots where `capacity >= min_available_tickets`, `hour < morning_before_hour || hour >= afternoon_from_hour`, and `!notified_slots.contains(timestamp)`.
 
 4. **Step 3: Snapshot, Alert & State Update:**
    * Append the cycle's `CheckSnapshot` to `recent_checks` (keeping the last `max_recent_checks` entries) and persist `last_seen_slots.json`.

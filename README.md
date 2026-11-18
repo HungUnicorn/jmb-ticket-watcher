@@ -5,16 +5,17 @@ A lightweight Rust daemon that monitors time-slot ticket availability on a **JMB
 ## Features
 
 - Polls the JMB/gomus calendar and quota APIs on a randomized 5–10 minute interval (`300s` base + `0–300s` jitter).
-- Filters slots by date range (`2026-12-24` to `2027-01-03`, excluding `2026-12-24`), minimum available tickets (`min_tickets`), and preferred hours (up to `10:00` inclusive or from `15:00` onwards).
-- Hot-reloads `config.json` and `secrets.json` on every polling cycle — no restart needed when tuning filters.
+- Filters slots by date range (`2026-12-24` to `2027-01-03`, excluding `2026-12-24`), minimum available tickets (`min_available_tickets`), and preferred hours (up to `10:00` inclusive or from `15:00` onwards).
+- Hot-reloads `config.json` (system settings), `filters.json` (personal filter criteria), and `secrets.json` (ntfy credentials) on every polling cycle — no restart needed when tuning filters.
 - Deduplicates alerts in `last_seen_slots.json` (`notified_slots`) and records a rolling history of the last 3 checks (`recent_checks`) for easy verification.
 - Supports `--once` for a single check and exits cleanly on `Ctrl+C`.
 
 ## Setup
 
-1. **Create `secrets.json`** from the example template:
+1. **Create `secrets.json` and `filters.json`** from the example templates:
    ```bash
    cp secrets.example.json secrets.json
+   cp filters.example.json filters.json
    ```
    Edit `secrets.json` and set a private, hard-to-guess `ntfy_topic`:
    ```json
@@ -25,10 +26,15 @@ A lightweight Rust daemon that monitors time-slot ticket availability on a **JMB
    ```
    Subscribe to the same topic in the **ntfy** app on your phone (iOS/Android).
 
-2. **Review `config.json`** to adjust your date window, `min_tickets`, or time-of-day filters if needed:
+2. **Edit `filters.json`** to set your personal target `museum_id`, date window, `min_available_tickets`, and time-of-day filters:
    ```json
    {
-     "min_tickets": 2,
+     "museum_id": "2",
+     "calendar_months": ["2026-12-01", "2027-01-01"],
+     "date_start": "2026-12-24",
+     "date_end": "2027-01-03",
+     "excluded_dates": ["2026-12-24"],
+     "min_available_tickets": 2,
      "morning_before_hour": 10,
      "afternoon_from_hour": 15
    }
