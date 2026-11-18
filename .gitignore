@@ -2,3 +2,4 @@
 /data/
 config/filters.json
 config/secrets.json
+lcov.info

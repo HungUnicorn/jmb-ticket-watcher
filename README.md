@@ -1,5 +1,7 @@
 # jmb-ticket-watcher
 
+[![CI](https://github.com/HungUnicorn/jmb-ticket-watcher/actions/workflows/ci.yml/badge.svg)](https://github.com/HungUnicorn/jmb-ticket-watcher/actions/workflows/ci.yml)
+
 A lightweight Rust daemon that monitors time-slot ticket availability on a **JMB/gomus** ticket calendar (configured via `config.json`) and sends instant push notifications via [ntfy](https://ntfy.sh) when matching slots open up.
 
 ## Features
