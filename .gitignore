@@ -1,4 +1,4 @@
 /target
-filters.json
-secrets.json
-last_seen_slots.json
+/data/
+config/filters.json
+config/secrets.json
