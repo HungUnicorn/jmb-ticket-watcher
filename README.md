@@ -1,6 +1,6 @@
 # jmb-ticket-watcher
 
-A lightweight Rust daemon that monitors time-slot ticket availability for the **Jewish Museum Berlin** (`museum_id=2`) and sends instant push notifications via [ntfy](https://ntfy.sh) when matching slots open up.
+A lightweight Rust daemon that monitors time-slot ticket availability on a **JMB/gomus** ticket calendar (configured via `config.json`) and sends instant push notifications via [ntfy](https://ntfy.sh) when matching slots open up.
 
 ## Features
 

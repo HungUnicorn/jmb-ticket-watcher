@@ -2,7 +2,7 @@
 
 ## 1. Overview & Objective
 
-Build an automated, headless daemon in Rust (`jmb-ticket-watcher`) running on macOS (Apple Silicon) under `caffeinate -i`. The binary monitors time slot availability at the Jewish Museum Berlin (`museum_id=2`) for the holiday window **2026-12-24 to 2027-01-03**, excluding fixed closure dates (**2026-12-24**).
+Build an automated, headless daemon in Rust (`jmb-ticket-watcher`) running on macOS (Apple Silicon) under `caffeinate -i`. The binary monitors time-slot availability on a JMB/gomus calendar (configured via `config.json`) for a target date window (default **2026-12-24 to 2027-01-03**, excluding **2026-12-24**).
 
 Eligible time slots must have at least `min_tickets` available (default `2`) and fall within the desired time windows: up to `10:00` inclusive (`<= 10:00`) or from `15:00` onwards (`>= 15:00`).
 
