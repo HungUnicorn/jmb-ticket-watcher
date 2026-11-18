@@ -41,6 +41,14 @@ impl StateRepository for JsonFileStateRepository {
     }
 
     fn persist_state(&self, state: &StateFile) -> Result<()> {
+        if let Some(parent_dir) = self.file_path.parent() {
+            if !parent_dir.as_os_str().is_empty() {
+                fs::create_dir_all(parent_dir).with_context(|| {
+                    format!("failed to create state directory {}", parent_dir.display())
+                })?;
+            }
+        }
+
         let serialized =
             serde_json::to_string_pretty(state).context("failed to serialize state JSON")?;
 

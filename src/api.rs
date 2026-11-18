@@ -47,9 +47,7 @@ impl TicketAvailabilityProvider for WatcherHttpClient {
             ])
             .send()
             .await
-            .with_context(|| {
-                format!("calendar request failed for start_at={month_start_date}")
-            })?;
+            .with_context(|| format!("calendar request failed for start_at={month_start_date}"))?;
 
         let status = response.status();
         debug!(url = %cfg.calendar_url, month_start_date, %status, "calendar response received");
@@ -212,8 +210,7 @@ mod tests {
 
     #[test]
     fn parses_quotas_response_json_into_slot_capacities() {
-        let raw_json =
-            r#"{"quotas":{"24":{"capacities":{"2026-12-29T10:00:00+01:00":2}}}}"#;
+        let raw_json = r#"{"quotas":{"24":{"capacities":{"2026-12-29T10:00:00+01:00":2}}}}"#;
         let quotas = parse_quotas_response_json(raw_json, "2026-12-29").unwrap();
 
         assert_eq!(
@@ -231,6 +228,9 @@ mod tests {
             ntfy_topic: " my-topic ".to_string(),
         };
 
-        assert_eq!(build_ntfy_endpoint_url(&secrets), "https://ntfy.sh/my-topic");
+        assert_eq!(
+            build_ntfy_endpoint_url(&secrets),
+            "https://ntfy.sh/my-topic"
+        );
     }
 }

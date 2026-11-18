@@ -4,9 +4,9 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const CONFIG_FILE_PATH: &str = "config.json";
-pub const FILTERS_FILE_PATH: &str = "filters.json";
-pub const SECRETS_FILE_PATH: &str = "secrets.json";
+pub const CONFIG_FILE_PATH: &str = "config/config.json";
+pub const FILTERS_FILE_PATH: &str = "config/filters.json";
+pub const SECRETS_FILE_PATH: &str = "config/secrets.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemConfig {
@@ -233,7 +233,7 @@ mod tests {
             base_interval_secs: 300,
             max_jitter_secs: 300,
             max_recent_checks: 3,
-            state_file_path: "last_seen_slots.json".to_string(),
+            state_file_path: "data/last_seen_slots.json".to_string(),
         };
         let filters = FilterConfig {
             museum_id: "2".to_string(),
