@@ -1,0 +1,15 @@
+{
+  "museum_id": "2",
+  "calendar_months": [
+    "2026-12-01",
+    "2027-01-01"
+  ],
+  "date_start": "2026-12-24",
+  "date_end": "2027-01-03",
+  "excluded_dates": [
+    "2026-12-24"
+  ],
+  "min_available_tickets": 2,
+  "morning_before_hour": 10,
+  "afternoon_from_hour": 15
+}
