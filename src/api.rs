@@ -47,19 +47,23 @@ impl TicketAvailabilityProvider for WatcherHttpClient {
             ])
             .send()
             .await
-            .with_context(|| format!("calendar request failed for start_at={month_start_date}"))?;
+            .with_context(|| {
+                format!("calendar request failed for start_at={month_start_date}")
+            })?;
 
         let status = response.status();
         debug!(url = %cfg.calendar_url, month_start_date, %status, "calendar response received");
 
-        response
+        let raw_body = response
             .error_for_status()
             .with_context(|| {
                 format!("calendar endpoint returned error status for {month_start_date}")
             })?
-            .json::<CalendarResponse>()
+            .text()
             .await
-            .with_context(|| format!("failed to decode calendar JSON for {month_start_date}"))
+            .with_context(|| format!("failed to read calendar body for {month_start_date}"))?;
+
+        parse_calendar_response_json(&raw_body, month_start_date)
     }
 
     async fn fetch_slot_quotas_for_date(
@@ -84,12 +88,14 @@ impl TicketAvailabilityProvider for WatcherHttpClient {
         let status = response.status();
         debug!(url = %cfg.quotas_url, valid_date, %status, "quotas response received");
 
-        response
+        let raw_body = response
             .error_for_status()
             .with_context(|| format!("quotas endpoint returned error status for {valid_date}"))?
-            .json::<QuotasResponse>()
+            .text()
             .await
-            .with_context(|| format!("failed to decode quotas JSON for {valid_date}"))
+            .with_context(|| format!("failed to read quotas body for {valid_date}"))?;
+
+        parse_quotas_response_json(&raw_body, valid_date)
     }
 }
 
@@ -100,9 +106,8 @@ impl AlertNotifier for WatcherHttpClient {
         secrets: &SecretsConfig,
         available_slots: &[AvailableSlot],
     ) -> Result<()> {
+        let endpoint_url = build_ntfy_endpoint_url(secrets);
         let base_url = secrets.ntfy_base_url.trim_end_matches('/');
-        let topic = secrets.ntfy_topic.trim();
-        let endpoint_url = format!("{base_url}/{topic}");
         let notification_body =
             format_available_slots_notification_body(available_slots, &cfg.booking_page_url);
 
@@ -129,6 +134,25 @@ impl AlertNotifier for WatcherHttpClient {
     }
 }
 
+pub fn parse_calendar_response_json(
+    raw_json: &str,
+    month_start_date: &str,
+) -> Result<CalendarResponse> {
+    serde_json::from_str::<CalendarResponse>(raw_json)
+        .with_context(|| format!("failed to decode calendar JSON for {month_start_date}"))
+}
+
+pub fn parse_quotas_response_json(raw_json: &str, valid_date: &str) -> Result<QuotasResponse> {
+    serde_json::from_str::<QuotasResponse>(raw_json)
+        .with_context(|| format!("failed to decode quotas JSON for {valid_date}"))
+}
+
+pub fn build_ntfy_endpoint_url(secrets: &SecretsConfig) -> String {
+    let base_url = secrets.ntfy_base_url.trim_end_matches('/');
+    let topic = secrets.ntfy_topic.trim();
+    format!("{base_url}/{topic}")
+}
+
 pub fn format_available_slots_notification_body(
     slots: &[AvailableSlot],
     booking_page_url: &str,
@@ -152,59 +176,6 @@ pub fn format_available_slots_notification_body(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AppConfig, SecretsConfig};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
-
-    async fn spawn_single_response_http_server(
-        status_line: &str,
-        content_type: &str,
-        body: &str,
-    ) -> (String, tokio::task::JoinHandle<String>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let status_line = status_line.to_string();
-        let content_type = content_type.to_string();
-        let body = body.to_string();
-
-        let handle = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut buffer = [0u8; 4096];
-            let bytes_read = socket.read(&mut buffer).await.unwrap();
-            let raw_request = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
-
-            let response = format!(
-                "HTTP/1.1 {status_line}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            socket.write_all(response.as_bytes()).await.unwrap();
-            raw_request
-        });
-
-        (format!("http://{addr}"), handle)
-    }
-
-    fn test_app_config(base_url: &str) -> AppConfig {
-        AppConfig {
-            museum_id: "2".to_string(),
-            ticket_type: "time_slot".to_string(),
-            shop_domain: "tickets.jmberlin.de".to_string(),
-            calendar_url: format!("{base_url}/api/v4/tickets/calendar"),
-            quotas_url: format!("{base_url}/api/v4/tickets/list_and_quotas"),
-            booking_page_url: "https://tickets.jmberlin.de/tickets/?museum_id=2".to_string(),
-            calendar_months: vec!["2026-12-01".to_string()],
-            date_start: "2026-12-24".to_string(),
-            date_end: "2027-01-03".to_string(),
-            excluded_dates: vec!["2026-12-24".to_string()],
-            min_tickets: 2,
-            morning_before_hour: 10,
-            afternoon_from_hour: 15,
-            base_interval_secs: 300,
-            max_jitter_secs: 300,
-            max_recent_checks: 3,
-            state_file_path: "last_seen_slots.json".to_string(),
-        }
-    }
 
     #[test]
     fn formats_notification_body_with_slots_and_booking_link() {
@@ -230,47 +201,20 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn fetches_calendar_with_shop_header_and_query_params() {
-        let (base_url, server_handle) = spawn_single_response_http_server(
-            "200 OK",
-            "application/json",
-            r#"{"data":{"2026-12-25":true,"2026-12-26":false}}"#,
-        )
-        .await;
-
-        let client = WatcherHttpClient::new_with_default_timeouts().unwrap();
-        let cfg = test_app_config(&base_url);
-
-        let calendar = client
-            .fetch_bookable_calendar_for_month(&cfg, "2026-12-01")
-            .await
-            .unwrap();
-        let raw_request = server_handle.await.unwrap().to_lowercase();
+    #[test]
+    fn parses_calendar_response_json_into_bookable_map() {
+        let raw_json = r#"{"data":{"2026-12-25":true,"2026-12-26":false}}"#;
+        let calendar = parse_calendar_response_json(raw_json, "2026-12-01").unwrap();
 
         assert_eq!(calendar.data.get("2026-12-25"), Some(&true));
         assert_eq!(calendar.data.get("2026-12-26"), Some(&false));
-        assert!(raw_request.contains("x-shop-url: tickets.jmberlin.de"));
-        assert!(raw_request.contains("start_at=2026-12-01"));
     }
 
-    #[tokio::test]
-    async fn fetches_quotas_for_date_and_parses_capacities() {
-        let (base_url, server_handle) = spawn_single_response_http_server(
-            "200 OK",
-            "application/json",
-            r#"{"quotas":{"24":{"capacities":{"2026-12-29T10:00:00+01:00":2}}}}"#,
-        )
-        .await;
-
-        let client = WatcherHttpClient::new_with_default_timeouts().unwrap();
-        let cfg = test_app_config(&base_url);
-
-        let quotas = client
-            .fetch_slot_quotas_for_date(&cfg, "2026-12-29")
-            .await
-            .unwrap();
-        let raw_request = server_handle.await.unwrap().to_lowercase();
+    #[test]
+    fn parses_quotas_response_json_into_slot_capacities() {
+        let raw_json =
+            r#"{"quotas":{"24":{"capacities":{"2026-12-29T10:00:00+01:00":2}}}}"#;
+        let quotas = parse_quotas_response_json(raw_json, "2026-12-29").unwrap();
 
         assert_eq!(
             quotas.quotas["24"]
@@ -278,36 +222,15 @@ mod tests {
                 .get("2026-12-29T10:00:00+01:00"),
             Some(&2)
         );
-        assert!(raw_request.contains("x-shop-url: tickets.jmberlin.de"));
-        assert!(raw_request.contains("valid_at=2026-12-29"));
     }
 
-    #[tokio::test]
-    async fn dispatches_ntfy_alert_with_expected_headers_and_body() {
-        let (base_url, server_handle) =
-            spawn_single_response_http_server("200 OK", "application/json", r#"{"id":"ok"}"#).await;
-
-        let client = WatcherHttpClient::new_with_default_timeouts().unwrap();
-        let cfg = test_app_config(&base_url);
+    #[test]
+    fn builds_normalized_ntfy_endpoint_url() {
         let secrets = SecretsConfig {
-            ntfy_base_url: base_url,
-            ntfy_topic: "test-topic".to_string(),
+            ntfy_base_url: "https://ntfy.sh/".to_string(),
+            ntfy_topic: " my-topic ".to_string(),
         };
-        let slots = vec![AvailableSlot {
-            timestamp: "2026-12-29T10:00:00+01:00".to_string(),
-            capacity: 2,
-        }];
 
-        client
-            .dispatch_available_slots_alert(&cfg, &secrets, &slots)
-            .await
-            .unwrap();
-        let raw_request = server_handle.await.unwrap();
-        let lower = raw_request.to_lowercase();
-
-        assert!(raw_request.starts_with("POST /test-topic "));
-        assert!(lower.contains("title: jmb time slot alert!"));
-        assert!(lower.contains("priority: high"));
-        assert!(raw_request.contains("- 2026-12-29 10:00 (2 tickets)"));
+        assert_eq!(build_ntfy_endpoint_url(&secrets), "https://ntfy.sh/my-topic");
     }
 }

@@ -81,7 +81,7 @@ where
     R: StateRepository,
 {
     info!(
-        min_tickets = cfg.min_tickets,
+        min_available_tickets = cfg.min_available_tickets,
         morning_before_hour = cfg.morning_before_hour,
         afternoon_from_hour = cfg.afternoon_from_hour,
         "Checking JMB availability..."
@@ -316,7 +316,7 @@ mod tests {
             date_start: "2026-12-24".to_string(),
             date_end: "2027-01-03".to_string(),
             excluded_dates: vec!["2026-12-24".to_string()],
-            min_tickets: 2,
+            min_available_tickets: 2,
             morning_before_hour: 10,
             afternoon_from_hour: 15,
             base_interval_secs: 300,

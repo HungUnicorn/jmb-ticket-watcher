@@ -7,7 +7,8 @@ mod watcher;
 
 use crate::client::WatcherHttpClient;
 use crate::config::{
-    ConfigurationSource, JsonFileConfigurationSource, CONFIG_FILE_PATH, SECRETS_FILE_PATH,
+    ConfigurationSource, JsonFileConfigurationSource, CONFIG_FILE_PATH, FILTERS_FILE_PATH,
+    SECRETS_FILE_PATH,
 };
 use crate::state::{JsonFileStateRepository, StateRepository};
 use crate::watcher::{compute_randomized_sleep_seconds, PollingTicketWatcher, TicketWatcher};
@@ -23,7 +24,8 @@ async fn main() -> Result<()> {
 
     let run_single_cycle_only = std::env::args().any(|arg| arg == "--once");
 
-    let config_source = JsonFileConfigurationSource::new(CONFIG_FILE_PATH, SECRETS_FILE_PATH);
+    let config_source =
+        JsonFileConfigurationSource::new(CONFIG_FILE_PATH, FILTERS_FILE_PATH, SECRETS_FILE_PATH);
     let mut cfg = config_source.load_app_config()?;
     let mut secrets = config_source.load_secrets_config()?;
 
@@ -34,9 +36,10 @@ async fn main() -> Result<()> {
 
     info!(
         config_file = CONFIG_FILE_PATH,
+        filters_file = FILTERS_FILE_PATH,
         secrets_file = SECRETS_FILE_PATH,
         state_file = %state_repository.file_path().display(),
-        min_tickets = cfg.min_tickets,
+        min_available_tickets = cfg.min_available_tickets,
         morning_before_hour = cfg.morning_before_hour,
         afternoon_from_hour = cfg.afternoon_from_hour,
         notified_slots = state.notified_slots.len(),

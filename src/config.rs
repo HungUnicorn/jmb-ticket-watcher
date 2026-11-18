@@ -5,7 +5,33 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const CONFIG_FILE_PATH: &str = "config.json";
+pub const FILTERS_FILE_PATH: &str = "filters.json";
 pub const SECRETS_FILE_PATH: &str = "secrets.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemConfig {
+    pub ticket_type: String,
+    pub shop_domain: String,
+    pub calendar_url: String,
+    pub quotas_url: String,
+    pub booking_page_url: String,
+    pub base_interval_secs: u64,
+    pub max_jitter_secs: u64,
+    pub max_recent_checks: usize,
+    pub state_file_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterConfig {
+    pub museum_id: String,
+    pub calendar_months: Vec<String>,
+    pub date_start: String,
+    pub date_end: String,
+    pub excluded_dates: Vec<String>,
+    pub min_available_tickets: i64,
+    pub morning_before_hour: u32,
+    pub afternoon_from_hour: u32,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -19,13 +45,40 @@ pub struct AppConfig {
     pub date_start: String,
     pub date_end: String,
     pub excluded_dates: Vec<String>,
-    pub min_tickets: i64,
+    pub min_available_tickets: i64,
     pub morning_before_hour: u32,
     pub afternoon_from_hour: u32,
     pub base_interval_secs: u64,
     pub max_jitter_secs: u64,
     pub max_recent_checks: usize,
     pub state_file_path: String,
+}
+
+impl AppConfig {
+    pub fn from_system_and_filter_configs(system: SystemConfig, filters: FilterConfig) -> Self {
+        let base_booking_url = system.booking_page_url.trim_end_matches('/');
+        let booking_page_url = format!("{base_booking_url}/?museum_id={}", filters.museum_id);
+
+        Self {
+            museum_id: filters.museum_id,
+            ticket_type: system.ticket_type,
+            shop_domain: system.shop_domain,
+            calendar_url: system.calendar_url,
+            quotas_url: system.quotas_url,
+            booking_page_url,
+            calendar_months: filters.calendar_months,
+            date_start: filters.date_start,
+            date_end: filters.date_end,
+            excluded_dates: filters.excluded_dates,
+            min_available_tickets: filters.min_available_tickets,
+            morning_before_hour: filters.morning_before_hour,
+            afternoon_from_hour: filters.afternoon_from_hour,
+            base_interval_secs: system.base_interval_secs,
+            max_jitter_secs: system.max_jitter_secs,
+            max_recent_checks: system.max_recent_checks,
+            state_file_path: system.state_file_path,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,13 +99,19 @@ pub trait ConfigurationSource {
 
 pub struct JsonFileConfigurationSource {
     config_path: PathBuf,
+    filters_path: PathBuf,
     secrets_path: PathBuf,
 }
 
 impl JsonFileConfigurationSource {
-    pub fn new(config_path: impl Into<PathBuf>, secrets_path: impl Into<PathBuf>) -> Self {
+    pub fn new(
+        config_path: impl Into<PathBuf>,
+        filters_path: impl Into<PathBuf>,
+        secrets_path: impl Into<PathBuf>,
+    ) -> Self {
         Self {
             config_path: config_path.into(),
+            filters_path: filters_path.into(),
             secrets_path: secrets_path.into(),
         }
     }
@@ -60,7 +119,9 @@ impl JsonFileConfigurationSource {
 
 impl ConfigurationSource for JsonFileConfigurationSource {
     fn load_app_config(&self) -> Result<AppConfig> {
-        read_app_config_from_path(&self.config_path)
+        let system = read_system_config_from_path(&self.config_path)?;
+        let filters = read_filter_config_from_path(&self.filters_path)?;
+        Ok(AppConfig::from_system_and_filter_configs(system, filters))
     }
 
     fn load_secrets_config(&self) -> Result<SecretsConfig> {
@@ -103,7 +164,7 @@ impl TicketSlotFilter for AppConfig {
         capacity: i64,
         already_notified_slots: &BTreeSet<String>,
     ) -> bool {
-        capacity >= self.min_tickets
+        capacity >= self.min_available_tickets
             && self.is_timestamp_within_desired_hours(timestamp)
             && !already_notified_slots.contains(timestamp)
     }
@@ -122,11 +183,19 @@ pub fn extract_hour_and_minute_from_iso8601(timestamp: &str) -> Option<(u32, u32
     Some((hour, minute))
 }
 
-fn read_app_config_from_path(path: &Path) -> Result<AppConfig> {
+fn read_system_config_from_path(path: &Path) -> Result<SystemConfig> {
     let raw = fs::read_to_string(path)
-        .with_context(|| format!("failed to read config file {}", path.display()))?;
-    let cfg: AppConfig = serde_json::from_str(&raw)
-        .with_context(|| format!("failed to parse config file {}", path.display()))?;
+        .with_context(|| format!("failed to read system config file {}", path.display()))?;
+    let cfg: SystemConfig = serde_json::from_str(&raw)
+        .with_context(|| format!("failed to parse system config file {}", path.display()))?;
+    Ok(cfg)
+}
+
+fn read_filter_config_from_path(path: &Path) -> Result<FilterConfig> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("failed to read filter config file {}", path.display()))?;
+    let cfg: FilterConfig = serde_json::from_str(&raw)
+        .with_context(|| format!("failed to parse filter config file {}", path.display()))?;
     Ok(cfg)
 }
 
@@ -155,25 +224,38 @@ mod tests {
     use super::*;
 
     fn sample_config() -> AppConfig {
-        AppConfig {
-            museum_id: "2".to_string(),
+        let system = SystemConfig {
             ticket_type: "time_slot".to_string(),
             shop_domain: "tickets.jmberlin.de".to_string(),
             calendar_url: "https://jmb.gomus.de/api/v4/tickets/calendar".to_string(),
             quotas_url: "https://jmb.gomus.de/api/v4/tickets/list_and_quotas".to_string(),
-            booking_page_url: "https://tickets.jmberlin.de/tickets/?museum_id=2".to_string(),
-            calendar_months: vec!["2026-12-01".to_string(), "2027-01-01".to_string()],
-            date_start: "2026-12-24".to_string(),
-            date_end: "2027-01-03".to_string(),
-            excluded_dates: vec!["2026-12-24".to_string()],
-            min_tickets: 2,
-            morning_before_hour: 10,
-            afternoon_from_hour: 15,
+            booking_page_url: "https://tickets.jmberlin.de/tickets/".to_string(),
             base_interval_secs: 300,
             max_jitter_secs: 300,
             max_recent_checks: 3,
             state_file_path: "last_seen_slots.json".to_string(),
-        }
+        };
+        let filters = FilterConfig {
+            museum_id: "2".to_string(),
+            calendar_months: vec!["2026-12-01".to_string(), "2027-01-01".to_string()],
+            date_start: "2026-12-24".to_string(),
+            date_end: "2027-01-03".to_string(),
+            excluded_dates: vec!["2026-12-24".to_string()],
+            min_available_tickets: 2,
+            morning_before_hour: 10,
+            afternoon_from_hour: 15,
+        };
+        AppConfig::from_system_and_filter_configs(system, filters)
+    }
+
+    #[test]
+    fn builds_app_config_and_appends_museum_id_to_booking_url() {
+        let cfg = sample_config();
+        assert_eq!(cfg.museum_id, "2");
+        assert_eq!(
+            cfg.booking_page_url,
+            "https://tickets.jmberlin.de/tickets/?museum_id=2"
+        );
     }
 
     #[test]
